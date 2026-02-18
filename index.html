@@ -242,7 +242,6 @@
       font-size:12px;
       color: rgba(245,245,247,.86);
     }
-    .out strong{ color: var(--text); }
     .pill{
       display:inline-flex; align-items:center; justify-content:center;
       min-width: 56px;
@@ -282,19 +281,21 @@
       <div>
         <h1 class="title">Desafio dos Brodis — 90 Dias</h1>
         <p class="subtitle">
-          Disciplina > desculpa. Aqui a conta é simples: constância (70%) + evolução (30%).
-          Preencha os campos e o placar calcula sozinho.
+          Disciplina &gt; desculpa. Aqui a conta é simples: constância (70%) + evolução (30%).
+          Preencha os campos e o placar calcula sozinho <b>(com salvamento local)</b>.
         </p>
         <div class="chips">
           <span class="chip">📅 Início: <b>01/03/2026</b></span>
           <span class="chip">📅 Fim: <b>31/05/2026</b></span>
+          <span class="chip">💾 Storage: <b>localStorage</b></span>
           <span class="chip">🔒 Cap: <b>+100%/exercício</b></span>
           <span class="chip">⚖️ Pesos: <b>Corrida 2</b> • <b>Barra 2</b> • <b>Flex 1</b> • <b>Abd 1</b></span>
         </div>
       </div>
 
       <div class="actions">
-        <button class="btn btn-accent" onclick="resetAll()">Resetar</button>
+        <button class="btn btn-accent" onclick="resetAll(true)">Resetar</button>
+        <button class="btn" onclick="exportJSON()">Exportar JSON</button>
         <div class="status" id="status">
           <span class="dot" id="dot"></span>
           <span id="statusText">Preencha os campos para calcular o placar.</span>
@@ -325,7 +326,7 @@
 
           <div style="margin-top:12px;" class="hint">
             <b>Formato:</b> corrida em <code>m:ss</code> (ex: <code>5:12</code>). Repetições = inteiro.
-            Assiduidade é calculada por <b>Feitos / Meta</b> (0–100%).
+            Assiduidade = <b>Feitos / Meta</b> (0–100%).
           </div>
         </div>
       </div>
@@ -354,7 +355,8 @@
             <b>Corrida:</b> Melhora(%) = ((PaceInicial − PaceFinal)/PaceInicial)×100 (pace em segundos).<br>
             <b>Cap:</b> melhora positiva limitada a +100% por exercício (negativo é livre).<br>
             <b>Pontos:</b> Melhora(%) × peso. Total máximo = 600 (corrida 200 + barra 200 + flex 100 + abd 100).<br>
-            <b>Score Final:</b> 0.7×Assiduidade% + 0.3×Performance(0–100).
+            <b>Score Final:</b> 0.7×Assiduidade% + 0.3×Performance(0–100).<br>
+            <b>Storage:</b> salva automaticamente no seu navegador (local).
           </div>
         </div>
       </div>
@@ -391,13 +393,69 @@
           <tbody id="tbody"></tbody>
         </table>
         <div class="foot">
-          <b>Obs:</b> se você preencher só uma parte, a linha calcula o que der. O líder provisório é o maior <b>Score Final</b> válido.
+          <b>Obs:</b> preencheu → salvou. Atualizou a página → continua tudo aqui.
         </div>
       </div>
     </div>
   </div>
 
 <script>
+/** =============================
+ *  Local Storage (auto-save)
+ * ============================== */
+const STORAGE_KEY = "brodis90d_v1";
+
+function saveAll(){
+  const rows = {};
+  document.querySelectorAll("#tbody tr").forEach(tr => {
+    const name = tr.getAttribute("data-name");
+    const data = {};
+    tr.querySelectorAll("input[data-k]").forEach(inp => {
+      data[inp.dataset.k] = inp.value ?? "";
+    });
+    rows[name] = data;
+  });
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+  }catch(e){
+    // storage blocked/full: ignore gracefully
+  }
+}
+
+function loadAll(){
+  let raw = null;
+  try{ raw = localStorage.getItem(STORAGE_KEY); }catch(e){ raw = null; }
+  if(!raw) return;
+  let rows = null;
+  try{ rows = JSON.parse(raw); }catch(e){ rows = null; }
+  if(!rows) return;
+
+  document.querySelectorAll("#tbody tr").forEach(tr => {
+    const name = tr.getAttribute("data-name");
+    const data = rows[name];
+    if(!data) return;
+    Object.entries(data).forEach(([k,v]) => {
+      const inp = tr.querySelector(`input[data-k="${k}"]`);
+      if(inp) inp.value = v;
+    });
+  });
+}
+
+function exportJSON(){
+  let raw = "{}";
+  try{ raw = localStorage.getItem(STORAGE_KEY) || "{}"; }catch(e){ raw = "{}"; }
+  const blob = new Blob([raw], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "brodis90d.json";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 800);
+}
+
+/** =============================
+ *  App
+ * ============================== */
 (function init(){
   const participants = ["Isaac","Lucas","Mateus","Reno"];
   const tbody = document.getElementById("tbody");
@@ -442,13 +500,6 @@
       </td>`;
   }
 
-  function pillClassFromValue(v){
-    if (v === null) return "pill neu";
-    if (v > 0) return "pill pos";
-    if (v < 0) return "pill neg";
-    return "pill neu";
-  }
-
   function cellOut(key){
     return `
       <td>
@@ -460,43 +511,35 @@
 
   participants.forEach(p => tbody.insertAdjacentHTML("beforeend", rowHtml(p)));
 
-  // wire events
+  // 1) Load saved values
+  loadAll();
+
+  // 2) Wire events
   tbody.querySelectorAll("input").forEach(inp => {
     inp.addEventListener("input", () => {
       calcRow(inp.closest("tr"));
       calcAllStatus();
+      saveAll(); // auto-save on every edit
     });
   });
 
-  // initial calc
+  // 3) Initial calc
   tbody.querySelectorAll("tr").forEach(tr => calcRow(tr));
   calcAllStatus();
+  saveAll();
 })();
 
-function resetAll(){
+function resetAll(confirmStorage=false){
+  if(confirmStorage){
+    const ok = confirm("Apagar TODOS os dados salvos deste dispositivo?");
+    if(!ok) return;
+  }
   document.querySelectorAll("#tbody input").forEach(i => i.value = "");
   document.querySelectorAll("#tbody tr").forEach(tr => calcRow(tr));
   calcAllStatus();
+  try{ localStorage.removeItem(STORAGE_KEY); }catch(e){}
 }
 
-function fillExample(){
-  const rows = Array.from(document.querySelectorAll("#tbody tr"));
-  const example = [
-    { pace0:"5:10", pace1:"4:45", push0:"20", push1:"30", pull0:"6", pull1:"8", abs0:"35", abs1:"45", assDone:"42", assGoal:"60" },
-    { pace0:"5:30", pace1:"5:05", push0:"18", push1:"26", pull0:"4", pull1:"7", abs0:"30", abs1:"42", assDone:"55", assGoal:"60" },
-    { pace0:"4:55", pace1:"4:40", push0:"30", push1:"36", pull0:"10", pull1:"11", abs0:"50", abs1:"55", assDone:"50", assGoal:"60" },
-    { pace0:"6:05", pace1:"5:20", push0:"12", push1:"22", pull0:"2", pull1:"5", abs0:"25", abs1:"40", assDone:"40", assGoal:"60" },
-  ];
-  rows.forEach((tr, i) => {
-    const data = example[i] || example[0];
-    Object.entries(data).forEach(([k,v]) => {
-      const input = tr.querySelector(`input[data-k="${k}"]`);
-      if (input) input.value = v;
-    });
-    calcRow(tr);
-  });
-  calcAllStatus();
-}
 
 // ---- Math helpers ----
 function clampCapPositive(v){
@@ -534,12 +577,7 @@ function fmtNum(v){
   if (v === null) return {text:"—", cls:"pill neu"};
   const sign = v > 0 ? "+" : "";
   const cls = v > 0 ? "pill pos" : (v < 0 ? "pill neg" : "pill neu");
-  return {text: sign + v.toFixed(1), cls};
-}
-function fmtPlain(v){
-  if (v === null) return {text:"—", cls:"pill neu"};
-  const cls = "pill neu";
-  return {text: v.toFixed(1), cls};
+  return {text: sign + v.toFixed(1) + "", cls};
 }
 function setPill(tr, key, payload){
   const holder = tr.querySelector(`[data-o="${key}"]`);
